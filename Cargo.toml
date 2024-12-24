@@ -1,6 +1,16 @@
 [package]
-name = "chordkid"
+name = "poorkid"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.94"
+crossbeam = "0.8.4"
+device_query = "2.1.0"
+env_logger = "0.11.5"
+log = "0.4.22"
+midir = "0.10.1"
+parking_lot = "0.12.3"
+termion = "4.0.3"
+tokio = { version = "1.42.0", features = ["full"] }
+wmidi = "4.0.10"
