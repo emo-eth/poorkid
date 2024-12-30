@@ -1,17 +1,72 @@
+use std::fmt;
+
+use device_query::Keycode;
+use wmidi::{ControlFunction, MidiMessage, Note};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Triad {
+    third: i8,
+    fifth: i8,
+}
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Quality {
     Diminished,
     Minor,
     Major,
     Augmented,
+    Sus2,
+    Sus4,
+}
+
+impl Quality {
+    fn get_triad(&self) -> Triad {
+        match self {
+            Quality::Diminished => Triad { third: 3, fifth: 6 },
+            Quality::Minor => Triad { third: 3, fifth: 7 },
+            Quality::Major => Triad { third: 4, fifth: 7 },
+            Quality::Augmented => Triad { third: 4, fifth: 8 },
+            Quality::Sus2 => Triad { third: 2, fifth: 7 },
+            Quality::Sus4 => Triad { third: 5, fifth: 7 },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Extension {
+    FlatSixth,
     Sixth,
     MinorSeventh,
     MajorSeventh,
+    FlatNinth,
     Ninth,
+    SharpNinth,
+    FlatEleventh,
+    Eleventh,
+    SharpEleventh,
+    FlatThirteenth,
+    Thirteenth,
+    SharpThirteenth,
+}
+
+impl Extension {
+    fn get_semitones(&self) -> i8 {
+        use Extension::*;
+        match self {
+            FlatSixth => 8,
+            Sixth => 9,
+            MinorSeventh => 10,
+            MajorSeventh => 11,
+            FlatNinth => 13,
+            Ninth => 14,
+            SharpNinth => 15,
+            FlatEleventh => 16,
+            Eleventh => 17,
+            SharpEleventh => 18,
+            FlatThirteenth => 20,
+            Thirteenth => 21,
+            SharpThirteenth => 22,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,6 +84,46 @@ pub enum Modifier {
     Inversion(Inversion),
 }
 
+pub enum MappingInput<'a> {
+    Keycode(Keycode),
+    MidiMessage(MidiMessage<'a>),
+}
+
+trait ModifierMapping {
+    fn get_modifier(input: MappingInput) -> Option<Modifier>;
+}
+
+// Example implementations
+struct KeyboardMapping;
+struct MidiMapping;
+
+impl ModifierMapping for KeyboardMapping {
+    fn get_modifier(input: MappingInput) -> Option<Modifier> {
+        match input {
+            MappingInput::Keycode(key) => match key {
+                Keycode::Numpad7 => Some(Modifier::Quality(Quality::Diminished)),
+                Keycode::Numpad8 => Some(Modifier::Quality(Quality::Minor)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+impl ModifierMapping for MidiMapping {
+    fn get_modifier(input: MappingInput) -> Option<Modifier> {
+        match input {
+            MappingInput::MidiMessage(msg) => match msg {
+                MidiMessage::ControlChange(_, function, value) => match function.0 {
+                    _ => None,
+                },
+                _ => None,
+            }, // implement MIDI mapping logic here
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModifierStack {
     qualities: Vec<Quality>,
@@ -39,9 +134,9 @@ pub struct ModifierStack {
 impl ModifierStack {
     pub fn new() -> Self {
         Self {
-            qualities: vec![Quality::Major],
+            qualities: vec![],
             extensions: vec![],
-            inversions: vec![Inversion::Root],
+            inversions: vec![],
         }
     }
 
@@ -51,26 +146,6 @@ impl ModifierStack {
             Modifier::Extension(e) => self.update_extension(e, is_pressed),
             Modifier::Inversion(i) => self.update_inversion(i, is_pressed),
         }
-    }
-
-    pub fn get_current_state(&self) -> Vec<Modifier> {
-        let mut modifiers = Vec::new();
-
-        if let Some(q) = self.qualities.last() {
-            modifiers.push(Modifier::Quality(*q));
-        }
-        if let Some(e) = self.extensions.last() {
-            modifiers.push(Modifier::Extension(*e));
-        }
-        if let Some(i) = self.inversions.last() {
-            modifiers.push(Modifier::Inversion(*i));
-        }
-
-        if modifiers.is_empty() {
-            return vec![Modifier::Quality(Quality::Major)];
-        }
-
-        modifiers
     }
 
     fn update_quality(&mut self, quality: Quality, is_pressed: bool) {
@@ -99,9 +174,18 @@ impl ModifierStack {
             self.inversions.retain(|&m| m != inversion);
         }
     }
-}
 
-use std::fmt;
+    fn get_notes(&self, root: Note) -> Vec<Note> {
+        let mut notes = Vec::new();
+        let triad = self.qualities.last().unwrap().get_triad();
+        notes.push(root.step(triad.third).unwrap());
+        notes.push(root.step(triad.fifth).unwrap());
+        for &extension in self.extensions.iter() {
+            notes.push(root.step(extension.get_semitones()).unwrap());
+        }
+        notes
+    }
+}
 
 impl fmt::Display for ModifierStack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -110,6 +194,8 @@ impl fmt::Display for ModifierStack {
             Quality::Minor => "min",
             Quality::Diminished => "dim",
             Quality::Augmented => "aug",
+            Quality::Sus2 => "sus2",
+            Quality::Sus4 => "sus4",
         });
 
         let extensions = self.extensions.last().map_or("", |e| match e {
@@ -117,6 +203,15 @@ impl fmt::Display for ModifierStack {
             Extension::MinorSeventh => "7",
             Extension::MajorSeventh => "maj7",
             Extension::Ninth => "9",
+            Extension::FlatSixth => "b6",
+            Extension::FlatNinth => "b9",
+            Extension::FlatEleventh => "b11",
+            Extension::Eleventh => "11",
+            Extension::SharpNinth => "#9",
+            Extension::SharpEleventh => "#11",
+            Extension::FlatThirteenth => "b13",
+            Extension::Thirteenth => "13",
+            Extension::SharpThirteenth => "#13",
         });
 
         let inversion = self.inversions.last().map_or("", |i| match i {
