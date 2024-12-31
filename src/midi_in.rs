@@ -1,9 +1,10 @@
+use crate::midi::get_midi_in_port;
 use crate::modifier::ModifierStack;
-use midir::os::unix::VirtualOutput;
-use midir::{MidiInput, MidiOutput};
+use midir::{MidiInput, MidiInputPort, MidiOutput};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use wmidi::{Channel, MidiMessage, Note, U7};
@@ -27,10 +28,6 @@ impl ChordStatus {
     }
 }
 
-fn get_notes(_stack: &Arc<RwLock<ModifierStack>>, note: Note) -> Vec<Note> {
-    vec![note.clone().step(4).unwrap(), note.clone().step(7).unwrap()]
-}
-
 async fn transform_message(
     stack: Arc<RwLock<ModifierStack>>,
     status: Arc<RwLock<ChordStatus>>,
@@ -45,10 +42,11 @@ async fn transform_message(
             return;
         }
     };
+    let mut off = false;
     let messages = match midi_message {
         MidiMessage::NoteOn(channel, note, velocity) => {
             println!("NoteOn: {:?}", midi_message);
-            let notes = get_notes(&stack, note);
+            let notes = stack.read().unwrap().get_notes(note);
             if let Ok(mut status) = status.write() {
                 status.insert(channel, note, &notes);
             } else {
@@ -65,6 +63,7 @@ async fn transform_message(
         }
         MidiMessage::NoteOff(channel, note, velocity) => {
             println!("NoteOff: {:?}", midi_message);
+            off = true;
             // get existing notes and remove from status
             let notes = {
                 if let Ok(mut status) = status.write() {
@@ -99,15 +98,24 @@ async fn transform_message(
             messages
         }
         _ => {
-            vec![midi_message]
+            vec![]
         }
     };
 
-    for midi_message in messages {
-        if let Err(e) = tx.send(midi_message.to_vec()).await {
-            println!("Failed to send MIDI message: {:?}", e);
-            return;
-        }
+    futures::future::join_all(messages.iter().enumerate().map(|(i, midi_message)| {
+        schedule_midi_message(
+            tx.clone(),
+            Duration::from_millis(if off { 0 } else { i as u64 * 10 }),
+            midi_message.to_vec(),
+        )
+    }))
+    .await;
+}
+
+async fn schedule_midi_message(tx: mpsc::Sender<Vec<u8>>, delay: Duration, midi_message: Vec<u8>) {
+    tokio::time::sleep(delay).await;
+    if let Err(e) = tx.send(midi_message).await {
+        println!("Failed to send MIDI message: {:?}", e);
     }
 }
 
@@ -115,40 +123,12 @@ pub async fn run_input(
     tx: mpsc::Sender<Vec<u8>>,
     modifier_stack: Arc<RwLock<ModifierStack>>,
 ) -> Result<JoinHandle<()>, Box<dyn Error>> {
-    let midi_in = MidiInput::new("Poorkid Input")?;
     // create new virtual output port
     let midi_out = MidiOutput::new("Poorkid")?;
 
     // Create a virtual MIDI port that other applications can connect to
-    println!("\nCreating virtual port...");
-    let mut out_port = midi_out.create_virtual("Poorkid")?;
-
-    // log all port names
-    let in_ports = midi_in.ports();
-    for port in in_ports.iter() {
-        if let Ok(name) = midi_in.port_name(port) {
-            println!("Port name: {}", name);
-        }
-    }
-
-    // Get the first available input port
-    let in_ports = midi_in.ports();
-    let input_port = {
-        let mut selected_port = None;
-        for port in in_ports.iter() {
-            if let Ok(name) = midi_in.port_name(port) {
-                if name == "OP-XY" || name == "OP-XY Bluetooth" {
-                    println!("Found OP-XY");
-                    selected_port = Some(port);
-                    break;
-                }
-            }
-        }
-        match selected_port.or_else(|| in_ports.get(0)) {
-            Some(p) => p,
-            None => return Err("no input port found".into()),
-        }
-    };
+    // println!("\nCreating virtual port...");
+    // let mut out_port = midi_out.create_virtual("Poorkid")?;
 
     // Create channel for communication between MIDI callback and async task
     let (callback_tx, mut callback_rx) = mpsc::channel::<Vec<u8>>(1024); // Increased buffer size
@@ -157,9 +137,12 @@ pub async fn run_input(
     let (error_tx, mut error_rx) = mpsc::channel::<String>(32);
     let error_tx_clone = error_tx.clone();
 
+    let midi_in = MidiInput::new("Poorkid Input")?;
+    let input_port = get_midi_in_port()?;
+
     // Create connection and move ownership of tx to the callback
     let _conn = midi_in.connect(
-        input_port,
+        &input_port,
         "midi-input",
         move |_stamp, message, _| {
             println!("Callback received message. Sending to receiver.");
@@ -189,10 +172,6 @@ pub async fn run_input(
                 println!("Received message, sending to main receiver");
                 match MidiMessage::from_bytes(&message) {
                     Ok(midi_message) => {
-                        if matches!(midi_message, MidiMessage::Reset) {
-                            println!("Received Reset message, breaking loop");
-                            break;
-                        }
                         println!("Sending MIDI message outer: {:?}", midi_message);
                         transform_message(
                             modifier_stack.clone(),

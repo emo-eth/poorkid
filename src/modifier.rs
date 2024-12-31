@@ -84,25 +84,36 @@ pub enum Modifier {
     Inversion(Inversion),
 }
 
+/// Allow for both keyboard and MIDI input to select modifiers
 pub enum MappingInput<'a> {
     Keycode(Keycode),
     MidiMessage(MidiMessage<'a>),
 }
 
-trait ModifierMapping {
-    fn get_modifier(input: MappingInput) -> Option<Modifier>;
+pub trait ModifierMapping {
+    fn get_modifier(input: MappingInput) -> Option<(Modifier, bool)>;
 }
 
 // Example implementations
-struct KeyboardMapping;
-struct MidiMapping;
+pub struct KeyboardMapping;
+pub struct OPXYMapping;
 
 impl ModifierMapping for KeyboardMapping {
-    fn get_modifier(input: MappingInput) -> Option<Modifier> {
+    fn get_modifier(input: MappingInput) -> Option<(Modifier, bool)> {
         match input {
             MappingInput::Keycode(key) => match key {
-                Keycode::Numpad7 => Some(Modifier::Quality(Quality::Diminished)),
-                Keycode::Numpad8 => Some(Modifier::Quality(Quality::Minor)),
+                Keycode::Numpad7 => Some((Modifier::Quality(Quality::Diminished), true)),
+                Keycode::Numpad8 => Some((Modifier::Quality(Quality::Minor), true)),
+                Keycode::Numpad9 => Some((Modifier::Quality(Quality::Major), true)),
+                Keycode::NumpadSubtract => Some((Modifier::Quality(Quality::Augmented), true)),
+                Keycode::Numpad4 => Some((Modifier::Extension(Extension::Sixth), true)),
+                Keycode::Numpad5 => Some((Modifier::Extension(Extension::MinorSeventh), true)),
+                Keycode::Numpad6 => Some((Modifier::Extension(Extension::MajorSeventh), true)),
+                Keycode::NumpadAdd => Some((Modifier::Extension(Extension::Ninth), true)),
+                Keycode::Numpad1 => Some((Modifier::Inversion(Inversion::Root), true)),
+                Keycode::Numpad2 => Some((Modifier::Inversion(Inversion::First), true)),
+                Keycode::Numpad3 => Some((Modifier::Inversion(Inversion::Second), true)),
+                Keycode::NumpadEnter => Some((Modifier::Inversion(Inversion::Third), true)),
                 _ => None,
             },
             _ => None,
@@ -110,11 +121,25 @@ impl ModifierMapping for KeyboardMapping {
     }
 }
 
-impl ModifierMapping for MidiMapping {
-    fn get_modifier(input: MappingInput) -> Option<Modifier> {
+impl ModifierMapping for OPXYMapping {
+    fn get_modifier(input: MappingInput) -> Option<(Modifier, bool)> {
         match input {
             MappingInput::MidiMessage(msg) => match msg {
-                MidiMessage::ControlChange(_, function, value) => match function.0 {
+                MidiMessage::ControlChange(_, function, value) => match u8::from(function.0) {
+                    7 => Some((Modifier::Quality(Quality::Major), u8::from(value) > 0)),
+                    8 => Some((Modifier::Quality(Quality::Minor), u8::from(value) > 0)),
+                    9 => Some((Modifier::Quality(Quality::Diminished), u8::from(value) > 0)),
+                    10 => Some((Modifier::Quality(Quality::Augmented), u8::from(value) > 0)),
+                    61 => Some((Modifier::Extension(Extension::Sixth), u8::from(value) > 0)),
+                    62 => Some((
+                        Modifier::Extension(Extension::MinorSeventh),
+                        u8::from(value) > 0,
+                    )),
+                    63 => Some((
+                        Modifier::Extension(Extension::MajorSeventh),
+                        u8::from(value) > 0,
+                    )),
+                    64 => Some((Modifier::Extension(Extension::Ninth), u8::from(value) > 0)),
                     _ => None,
                 },
                 _ => None,
@@ -154,9 +179,6 @@ impl ModifierStack {
         } else {
             self.qualities.retain(|&m| m != quality);
         }
-        if self.qualities.is_empty() {
-            self.qualities.push(Quality::Major);
-        }
     }
 
     fn update_extension(&mut self, extension: Extension, is_pressed: bool) {
@@ -175,11 +197,12 @@ impl ModifierStack {
         }
     }
 
-    fn get_notes(&self, root: Note) -> Vec<Note> {
+    pub fn get_notes(&self, root: Note) -> Vec<Note> {
         let mut notes = Vec::new();
-        let triad = self.qualities.last().unwrap().get_triad();
-        notes.push(root.step(triad.third).unwrap());
-        notes.push(root.step(triad.fifth).unwrap());
+        if let Some(triad) = self.qualities.last() {
+            notes.push(root.step(triad.get_triad().third).unwrap());
+            notes.push(root.step(triad.get_triad().fifth).unwrap());
+        }
         for &extension in self.extensions.iter() {
             notes.push(root.step(extension.get_semitones()).unwrap());
         }
