@@ -1,6 +1,6 @@
 use crate::midi::get_midi_in_port;
 use crate::modifier::ModifierStack;
-use midir::{MidiInput, MidiInputPort, MidiOutput};
+use midir::{MidiInput, MidiOutput};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, RwLock};

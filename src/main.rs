@@ -3,6 +3,8 @@ mod midi;
 mod midi_in;
 mod modifier;
 mod modifier_handler;
+mod state;
+mod theory;
 // use device_query::{DeviceQuery, DeviceState, Keycode};
 use midir::MidiOutput;
 use midir::os::unix::VirtualOutput;
