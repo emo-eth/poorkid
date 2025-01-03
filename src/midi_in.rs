@@ -3,9 +3,9 @@ use crate::modifier::ModifierStack;
 use midir::{MidiInput, MidiOutput};
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use wmidi::{Channel, MidiMessage, Note, U7};
 
@@ -46,13 +46,12 @@ async fn transform_message(
     let messages = match midi_message {
         MidiMessage::NoteOn(channel, note, velocity) => {
             println!("NoteOn: {:?}", midi_message);
-            let notes = stack.read().unwrap().get_notes(note);
-            if let Ok(mut status) = status.write() {
-                status.insert(channel, note, &notes);
-            } else {
-                println!("Failed to acquire write lock on status");
-                return;
-            }
+            let x = stack.read().await;
+            let notes = x.get_notes(note);
+
+            let mut status = status.write().await;
+            status.insert(channel, note, &notes);
+
             let mut messages = vec![midi_message];
             messages.extend(
                 notes
@@ -66,26 +65,22 @@ async fn transform_message(
             off = true;
             // get existing notes and remove from status
             let notes = {
-                if let Ok(mut status) = status.write() {
-                    match status.roots.get(&channel) {
-                        Some(channel_notes) => match channel_notes.get(&note) {
-                            Some(notes) => notes.clone(),
-                            None => {
-                                println!(
-                                    "No notes found for note {:?} on channel {:?}",
-                                    note, channel
-                                );
-                                return;
-                            }
-                        },
+                let mut status = status.write().await;
+                match status.roots.get_mut(&channel) {
+                    Some(channel_notes) => match channel_notes.get(&note) {
+                        Some(_) => channel_notes.remove(&note).unwrap(),
                         None => {
-                            println!("No notes found for channel {:?}", channel);
+                            println!(
+                                "No notes found for note {:?} on channel {:?}",
+                                note, channel
+                            );
                             return;
                         }
+                    },
+                    None => {
+                        println!("No notes found for channel {:?}", channel);
+                        return;
                     }
-                } else {
-                    println!("Failed to acquire write lock on status");
-                    return;
                 }
             };
 

@@ -1,3 +1,4 @@
+mod arpeggiator;
 mod keyboard_in;
 mod midi;
 mod midi_in;
@@ -10,8 +11,8 @@ use midir::MidiOutput;
 use midir::os::unix::VirtualOutput;
 use modifier::{Modifier, ModifierStack};
 use std::error::Error;
-use std::sync::{Arc, Mutex, RwLock};
-use tokio::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use tokio::sync::{RwLock, mpsc};
 use wmidi::MidiMessage;
 
 // The #[tokio::main] attribute sets up Tokio's async runtime

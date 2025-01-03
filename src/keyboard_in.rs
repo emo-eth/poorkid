@@ -2,7 +2,8 @@ use crate::modifier::{self, Extension, Inversion, Quality};
 use device_query::{CallbackGuard, DeviceEvents, DeviceState, Keycode};
 use modifier::{Modifier, ModifierStack};
 use std::error::Error;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub struct KeyboardIn {
     key_up_handler: CallbackGuard<Box<dyn Fn(&Keycode) + Send + Sync>>,
@@ -18,28 +19,35 @@ pub async fn run_input(
             modifier,
             if is_pressed { "pressed" } else { "released" }
         );
-        if let Ok(mut data) = modifier_stack.write() {
+        if let Ok(mut data) = modifier_stack.try_write() {
             data.update(modifier, is_pressed);
         }
     };
+
     let handle_key = move |key: Keycode, pressed: bool| {
         // Get current keys being pressed
 
         // Check for newly pressed keys (key down events)
         match key {
             // Numpad keys
-            Keycode::Numpad7 => handle_modifier(Modifier::Quality(Quality::Diminished), true),
-            Keycode::Numpad8 => handle_modifier(Modifier::Quality(Quality::Minor), true),
-            Keycode::Numpad9 => handle_modifier(Modifier::Quality(Quality::Major), true),
-            Keycode::NumpadSubtract => handle_modifier(Modifier::Quality(Quality::Augmented), true),
-            Keycode::Numpad4 => handle_modifier(Modifier::Extension(Extension::Sixth), true),
-            Keycode::Numpad5 => handle_modifier(Modifier::Extension(Extension::MinorSeventh), true),
-            Keycode::Numpad6 => handle_modifier(Modifier::Extension(Extension::MajorSeventh), true),
-            Keycode::NumpadAdd => handle_modifier(Modifier::Extension(Extension::Ninth), true),
-            Keycode::Numpad1 => handle_modifier(Modifier::Inversion(Inversion::Root), true),
-            Keycode::Numpad2 => handle_modifier(Modifier::Inversion(Inversion::First), true),
-            Keycode::Numpad3 => handle_modifier(Modifier::Inversion(Inversion::Second), true),
-            Keycode::NumpadEnter => handle_modifier(Modifier::Inversion(Inversion::Third), true),
+            Keycode::Numpad7 => handle_modifier(Modifier::Quality(Quality::Diminished), pressed),
+            Keycode::Numpad8 => handle_modifier(Modifier::Quality(Quality::Minor), pressed),
+            Keycode::Numpad9 => handle_modifier(Modifier::Quality(Quality::Major), pressed),
+            Keycode::NumpadSubtract => {
+                handle_modifier(Modifier::Quality(Quality::Augmented), pressed)
+            }
+            Keycode::Numpad4 => handle_modifier(Modifier::Extension(Extension::Sixth), pressed),
+            Keycode::Numpad5 => {
+                handle_modifier(Modifier::Extension(Extension::MinorSeventh), pressed)
+            }
+            Keycode::Numpad6 => {
+                handle_modifier(Modifier::Extension(Extension::MajorSeventh), pressed)
+            }
+            Keycode::NumpadAdd => handle_modifier(Modifier::Extension(Extension::Ninth), pressed),
+            Keycode::Numpad1 => handle_modifier(Modifier::Inversion(Inversion::Root), pressed),
+            Keycode::Numpad2 => handle_modifier(Modifier::Inversion(Inversion::First), pressed),
+            Keycode::Numpad3 => handle_modifier(Modifier::Inversion(Inversion::Second), pressed),
+            Keycode::NumpadEnter => handle_modifier(Modifier::Inversion(Inversion::Third), pressed),
             _ => {}
         }
     };

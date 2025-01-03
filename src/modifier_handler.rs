@@ -1,13 +1,12 @@
 use crate::midi::get_midi_in_port;
-use crate::modifier::{MappingInput, Modifier, ModifierMapping, ModifierStack, OPXYMapping};
-use midir::{MidiInput, MidiInputPort, MidiOutput};
-use std::collections::HashMap;
+use crate::modifier::{MappingInput, ModifierMapping, ModifierStack, OPXYMapping};
+use midir::MidiInput;
 use std::error::Error;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use wmidi::{Channel, MidiMessage, Note, U7};
+use wmidi::MidiMessage;
 
 pub async fn handle_modifiers(
     stack: Arc<RwLock<ModifierStack>>,
@@ -45,9 +44,8 @@ pub async fn handle_modifiers(
                             OPXYMapping::get_modifier(MappingInput::MidiMessage(midi_message))
                         {
                             println!("Received modifier: {:?}", modifier);
-                            if let Ok(mut data) = stack.write() {
-                                data.update(modifier, pressed);
-                            }
+                            let mut data = stack.write().await;
+                            data.update(modifier, pressed);
                         }
                     }
                     Err(e) => {
