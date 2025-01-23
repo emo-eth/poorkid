@@ -6,7 +6,7 @@ use wmidi::Note;
 #[derive(Debug, Clone)]
 pub struct GlobalState {
     pub key: Key,
-    pub bpm: u16,
+    pub bpm: f32,
     pub perform: Perform,
     pub perform_params: PerformState,
     pub modifier_state: ModifierStack,
@@ -18,7 +18,7 @@ impl GlobalState {
     fn new() -> Self {
         Self {
             key: Key::new(Note::C4, Scale::Ionian),
-            bpm: 120,
+            bpm: 120.0,
             perform: Perform::None,
             perform_params: PerformState::new(),
             modifier_state: ModifierStack::new(),
@@ -77,6 +77,7 @@ impl PerformState {
 pub struct ArpeggiatorState {
     pub direction: ArpeggioDirection,
     pub rate: Rate,
+    pub index: usize,
 }
 
 impl ArpeggiatorState {
@@ -84,6 +85,7 @@ impl ArpeggiatorState {
         Self {
             direction: ArpeggioDirection::Up,
             rate: Rate::Eighth,
+            index: 0,
         }
     }
 }

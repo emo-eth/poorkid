@@ -66,6 +66,24 @@ async fn run() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    let bytes = vec![1, 2, 3];
+    let (send, mut receive) = mpsc::channel::<Arc<MidiMessage>>(32);
+    let message = Arc::new(MidiMessage::from_bytes(&bytes).unwrap().to_owned());
+    // create a receiver tokio thread
+    tokio::spawn(async move {
+        let port = midi_out_port_threadsafe.clone();
+        async move {
+            while let Some(message) = receive.recv().await {
+                println!("Sending to output port: {:?}", message);
+                if let Ok(mut port) = port.lock() {
+                    if let Err(e) = port.send(message.bytes()) {
+                        println!("Error sending MIDI message: {:?}", e);
+                    }
+                }
+            }
+        }
+    });
+
     // Wait for tasks to complete
     tokio::try_join!(
         async {
